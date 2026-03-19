@@ -75,15 +75,18 @@ class PaymentCard extends StatelessWidget {
                           color: theme.textTheme.bodySmall?.color,
                         ),
                         const SizedBox(width: 4),
-                        Text(
-                          'Due on day ${payment.dueDay}',
-                          style: theme.textTheme.bodySmall,
+                        Flexible(
+                          child: Text(
+                            'Due on day ${payment.dueDay}',
+                            style: theme.textTheme.bodySmall,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                         if (status.isOverdue && !status.isPaid) ...[
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
+                                horizontal: 5, vertical: 2),
                             decoration: BoxDecoration(
                               color: theme.colorScheme.error.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(4),
@@ -91,7 +94,7 @@ class PaymentCard extends StatelessWidget {
                             child: Text(
                               'OVERDUE',
                               style: TextStyle(
-                                fontSize: 10,
+                                fontSize: 9,
                                 fontWeight: FontWeight.bold,
                                 color: theme.colorScheme.error,
                               ),
