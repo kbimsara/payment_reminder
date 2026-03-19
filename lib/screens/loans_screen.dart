@@ -4,6 +4,7 @@ import '../database/database_helper.dart';
 import '../models/loan.dart';
 import '../widgets/loan_card.dart';
 import 'add_loan_screen.dart';
+import 'loan_payment_screen.dart';
 
 class LoansScreen extends StatefulWidget {
   const LoansScreen({super.key});
@@ -62,16 +63,32 @@ class _LoansScreenState extends State<LoansScreen>
   }
 
   Future<void> _markMonthPaid(Loan loan) async {
-    await _db.incrementLoanPaidMonths(loan.id!);
+    final now = DateTime.now();
+    await _db.toggleLoanMonthPaid(
+      loanId: loan.id!,
+      year: now.year,
+      month: now.month,
+      isPaid: true,
+    );
     await _loadLoans();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Month marked as paid for ${loan.title}'),
+          content: Text('${now.year}/${now.month} marked as paid for ${loan.title}'),
           action: SnackBarAction(label: 'OK', onPressed: () {}),
         ),
       );
     }
+  }
+
+  Future<void> _navigateToPayments(Loan loan) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => LoanPaymentScreen(loan: loan),
+      ),
+    );
+    await _loadLoans();
   }
 
   Future<void> _deleteLoan(Loan loan) async {
@@ -270,6 +287,7 @@ class _LoansScreenState extends State<LoansScreen>
           for (final loan in loans)
             LoanCard(
               loan: loan,
+              onViewPayments: () => _navigateToPayments(loan),
               onMarkPaid: () => _markMonthPaid(loan),
               onEdit: () => _navigateToAddLoan(loan: loan),
               onDelete: () => _deleteLoan(loan),
@@ -289,7 +307,7 @@ class _LoanSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currencyFormatter =
-        NumberFormat.currency(symbol: '\$', decimalDigits: 0);
+        NumberFormat.currency(symbol: 'LKR ', decimalDigits: 0);
     final totalRemaining =
         loans.fold<double>(0, (sum, l) => sum + l.remainingAmount);
     final monthlyTotal =

@@ -25,16 +25,31 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
   late TextEditingController _interestRateController;
   late TextEditingController _notesController;
   late DateTime _startDate;
-  late DateTime _endDate;
+  late int _durationYears;
+  late int _durationMonths;
   late int _paidMonths;
 
   bool get _isEditing => widget.loan != null;
   final _dateFormatter = DateFormat('MMM d, yyyy');
 
+  // Compute total months from years + months inputs
+  int get _computedTotalMonths => (_durationYears * 12) + _durationMonths;
+
+  // Compute end date from start date + duration
+  DateTime get _computedEndDate {
+    final totalMonths = _computedTotalMonths;
+    final year = _startDate.year + ((_startDate.month - 1 + totalMonths) ~/ 12);
+    final month = ((_startDate.month - 1 + totalMonths) % 12) + 1;
+    final lastDay = DateTime(year, month + 1, 0).day;
+    final day = _startDate.day > lastDay ? lastDay : _startDate.day;
+    return DateTime(year, month, day);
+  }
+
   @override
   void initState() {
     super.initState();
     final l = widget.loan;
+
     _titleController = TextEditingController(text: l?.title ?? '');
     _lenderController = TextEditingController(text: l?.lenderName ?? '');
     _totalAmountController =
@@ -47,10 +62,21 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
             : '');
     _notesController = TextEditingController(text: l?.notes ?? '');
     _startDate = l?.startDate ?? DateTime.now();
-    _endDate = l?.endDate ??
-        DateTime(DateTime.now().year + 1, DateTime.now().month,
-            DateTime.now().day);
     _paidMonths = l?.paidMonths ?? 0;
+
+    // Derive years + months from existing loan, or default to 1 year
+    if (l != null) {
+      final total = l.totalMonths;
+      _durationYears = total ~/ 12;
+      _durationMonths = total % 12;
+      // Ensure at least 1 month total
+      if (_durationYears == 0 && _durationMonths == 0) {
+        _durationMonths = 1;
+      }
+    } else {
+      _durationYears = 1;
+      _durationMonths = 0;
+    }
   }
 
   @override
@@ -80,54 +106,50 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     if (picked != null) {
       setState(() {
         _startDate = picked;
-        if (_endDate.isBefore(_startDate)) {
-          _endDate = DateTime(
-              _startDate.year + 1, _startDate.month, _startDate.day);
+        // Clamp paid months in case duration changed
+        if (_paidMonths > _computedTotalMonths) {
+          _paidMonths = _computedTotalMonths;
         }
       });
-    }
-  }
-
-  Future<void> _selectEndDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _endDate.isAfter(_startDate) ? _endDate : _startDate,
-      firstDate: _startDate,
-      lastDate: DateTime(2100),
-      builder: (context, child) => Theme(
-        data: Theme.of(context).copyWith(
-          colorScheme: Theme.of(context).colorScheme,
-        ),
-        child: child!,
-      ),
-    );
-    if (picked != null) {
-      setState(() => _endDate = picked);
+      _autoCalculateTotalAmount();
     }
   }
 
   void _autoCalculateTotalAmount() {
     final monthly = double.tryParse(_monthlyAmountController.text.trim());
-    if (monthly != null && monthly > 0) {
-      final tempLoan = Loan(
-        title: '',
-        lenderName: '',
-        totalAmount: 0,
-        monthlyAmount: monthly,
-        startDate: _startDate,
-        endDate: _endDate,
-      );
-      final total = monthly * tempLoan.totalMonths;
-      _totalAmountController.text = total.toStringAsFixed(2);
+    if (monthly != null && monthly > 0 && _computedTotalMonths > 0) {
+      _totalAmountController.text =
+          (monthly * _computedTotalMonths).toStringAsFixed(2);
     }
+  }
+
+  void _onDurationChanged({int? years, int? months}) {
+    setState(() {
+      if (years != null) _durationYears = years;
+      if (months != null) _durationMonths = months;
+      // Ensure at least 1 month total
+      if (_computedTotalMonths < 1) {
+        if (years != null) {
+          _durationMonths = 1;
+        } else {
+          _durationYears = 0;
+          _durationMonths = 1;
+        }
+      }
+      // Clamp paid months
+      if (_paidMonths > _computedTotalMonths) {
+        _paidMonths = _computedTotalMonths;
+      }
+    });
+    _autoCalculateTotalAmount();
   }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    if (!_endDate.isAfter(_startDate)) {
+    if (_computedTotalMonths < 1) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('End date must be after start date')),
+        const SnackBar(content: Text('Loan duration must be at least 1 month')),
       );
       return;
     }
@@ -142,9 +164,10 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         totalAmount: double.parse(_totalAmountController.text.trim()),
         monthlyAmount: double.parse(_monthlyAmountController.text.trim()),
         startDate: _startDate,
-        endDate: _endDate,
+        endDate: _computedEndDate,
         paidMonths: _paidMonths,
-        interestRate: double.tryParse(_interestRateController.text.trim()) ?? 0.0,
+        interestRate:
+            double.tryParse(_interestRateController.text.trim()) ?? 0.0,
         notes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
@@ -168,12 +191,6 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
         );
       }
     }
-  }
-
-  int get _computedTotalMonths {
-    final months = (_endDate.year - _startDate.year) * 12 +
-        (_endDate.month - _startDate.month);
-    return months <= 0 ? 1 : months;
   }
 
   @override
@@ -230,7 +247,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
             TextFormField(
               controller: _lenderController,
               decoration: const InputDecoration(
-                hintText: 'e.g. Chase Bank, Credit Union',
+                hintText: 'e.g. Commercial Bank, HNB, BOC',
                 prefixIcon: Icon(Icons.business_outlined),
               ),
               textCapitalization: TextCapitalization.words,
@@ -243,31 +260,29 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Date range
-            _SectionLabel(label: 'Loan Period'),
+            // Start date
+            _SectionLabel(label: 'Start Date'),
             const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _DateField(
-                    label: 'Start Date',
-                    date: _startDate,
-                    onTap: _selectStartDate,
-                    dateFormatter: _dateFormatter,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _DateField(
-                    label: 'End Date',
-                    date: _endDate,
-                    onTap: _selectEndDate,
-                    dateFormatter: _dateFormatter,
-                  ),
-                ),
-              ],
+            _DateField(
+              label: 'Loan Start Date',
+              date: _startDate,
+              onTap: _selectStartDate,
+              dateFormatter: _dateFormatter,
+            ),
+            const SizedBox(height: 24),
+
+            // Duration selector (years + months)
+            _SectionLabel(label: 'Loan Duration'),
+            const SizedBox(height: 8),
+            _DurationSelector(
+              years: _durationYears,
+              months: _durationMonths,
+              onYearsChanged: (y) => _onDurationChanged(years: y),
+              onMonthsChanged: (m) => _onDurationChanged(months: m),
             ),
             const SizedBox(height: 8),
+
+            // Summary info box
             Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
@@ -279,12 +294,14 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                   Icon(Icons.info_outline,
                       size: 16, color: theme.colorScheme.primary),
                   const SizedBox(width: 8),
-                  Text(
-                    'Duration: $_computedTotalMonths months',
-                    style: TextStyle(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.w500,
-                      fontSize: 13,
+                  Expanded(
+                    child: Text(
+                      'Total $_computedTotalMonths months  ·  Ends ${_dateFormatter.format(_computedEndDate)}',
+                      style: TextStyle(
+                        color: theme.colorScheme.primary,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 13,
+                      ),
                     ),
                   ),
                 ],
@@ -303,7 +320,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Monthly Payment',
                       prefixIcon: Icon(Icons.payments_outlined),
-                      prefixText: '\$',
+                      prefixText: 'LKR ',
                     ),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
@@ -313,9 +330,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                     ],
                     onChanged: (_) => _autoCalculateTotalAmount(),
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) {
-                        return 'Required';
-                      }
+                      if (v == null || v.trim().isEmpty) return 'Required';
                       final val = double.tryParse(v.trim());
                       if (val == null || val <= 0) return 'Invalid';
                       return null;
@@ -329,7 +344,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                     decoration: const InputDecoration(
                       labelText: 'Total Amount',
                       prefixIcon: Icon(Icons.account_balance_wallet_outlined),
-                      prefixText: '\$',
+                      prefixText: 'LKR ',
                     ),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
@@ -338,9 +353,7 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
                           RegExp(r'^\d*\.?\d{0,2}')),
                     ],
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) {
-                        return 'Required';
-                      }
+                      if (v == null || v.trim().isEmpty) return 'Required';
                       final val = double.tryParse(v.trim());
                       if (val == null || val <= 0) return 'Invalid';
                       return null;
@@ -363,32 +376,24 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(
-                    RegExp(r'^\d*\.?\d{0,2}')),
+                FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
               ],
             ),
             const SizedBox(height: 24),
 
-            // Paid months (for existing loans being added)
-            if (_isEditing) ...[
-              _SectionLabel(label: 'Months Already Paid'),
-              const SizedBox(height: 8),
-              _PaidMonthsSelector(
-                paidMonths: _paidMonths,
-                totalMonths: _computedTotalMonths,
-                onChanged: (v) => setState(() => _paidMonths = v),
-              ),
-              const SizedBox(height: 16),
-            ] else ...[
-              _SectionLabel(label: 'Months Already Paid (if any)'),
-              const SizedBox(height: 8),
-              _PaidMonthsSelector(
-                paidMonths: _paidMonths,
-                totalMonths: _computedTotalMonths,
-                onChanged: (v) => setState(() => _paidMonths = v),
-              ),
-              const SizedBox(height: 16),
-            ],
+            // Paid months
+            _SectionLabel(
+              label: _isEditing
+                  ? 'Months Already Paid'
+                  : 'Months Already Paid (if any)',
+            ),
+            const SizedBox(height: 8),
+            _PaidMonthsSelector(
+              paidMonths: _paidMonths,
+              totalMonths: _computedTotalMonths,
+              onChanged: (v) => setState(() => _paidMonths = v),
+            ),
+            const SizedBox(height: 24),
 
             // Notes
             _SectionLabel(label: 'Notes (optional)'),
@@ -415,6 +420,10 @@ class _AddLoanScreenState extends State<AddLoanScreen> {
     );
   }
 }
+
+// ─────────────────────────────────────────────
+// Widgets
+// ─────────────────────────────────────────────
 
 class _SectionLabel extends StatelessWidget {
   final String label;
@@ -458,35 +467,218 @@ class _DateField extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: const Color(0xFF3E3E3E)),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Text(
-              label,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: const Color(0xFF8E8E8E),
-              ),
+            Icon(
+              Icons.calendar_today_outlined,
+              size: 18,
+              color: theme.colorScheme.primary,
             ),
-            const SizedBox(height: 4),
-            Row(
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(
-                  Icons.calendar_today_outlined,
-                  size: 14,
-                  color: theme.colorScheme.primary,
+                Text(
+                  label,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF8E8E8E),
+                  ),
                 ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    dateFormatter.format(date),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w500,
-                    ),
+                const SizedBox(height: 2),
+                Text(
+                  dateFormatter.format(date),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
             ),
+            const Spacer(),
+            Icon(
+              Icons.chevron_right,
+              size: 18,
+              color: theme.colorScheme.onSurface.withOpacity(0.4),
+            ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DurationSelector extends StatelessWidget {
+  final int years;
+  final int months;
+  final ValueChanged<int> onYearsChanged;
+  final ValueChanged<int> onMonthsChanged;
+
+  const _DurationSelector({
+    required this.years,
+    required this.months,
+    required this.onYearsChanged,
+    required this.onMonthsChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceVariant,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF3E3E3E)),
+      ),
+      child: Row(
+        children: [
+          // Years picker
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  'Years',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF8E8E8E),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _StepButton(
+                      icon: Icons.remove,
+                      onTap: years > 0 ? () => onYearsChanged(years - 1) : null,
+                      theme: theme,
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 40,
+                      child: Text(
+                        '$years',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.primary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _StepButton(
+                      icon: Icons.add,
+                      onTap: years < 50 ? () => onYearsChanged(years + 1) : null,
+                      theme: theme,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  years == 1 ? 'year' : 'years',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+          // Divider
+          Container(
+            width: 1,
+            height: 70,
+            color: const Color(0xFF3E3E3E),
+            margin: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          // Months picker
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  'Months',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: const Color(0xFF8E8E8E),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    _StepButton(
+                      icon: Icons.remove,
+                      onTap: months > 0 ? () => onMonthsChanged(months - 1) : null,
+                      theme: theme,
+                    ),
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: 40,
+                      child: Text(
+                        '$months',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.secondary,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    _StepButton(
+                      icon: Icons.add,
+                      onTap: months < 11 ? () => onMonthsChanged(months + 1) : null,
+                      theme: theme,
+                      color: theme.colorScheme.secondary,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  months == 1 ? 'month' : 'months',
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  final ThemeData theme;
+  final Color? color;
+
+  const _StepButton({
+    required this.icon,
+    required this.onTap,
+    required this.theme,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final btnColor = color ?? theme.colorScheme.primary;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: onTap != null
+              ? btnColor.withOpacity(0.15)
+              : theme.colorScheme.onSurface.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: onTap != null
+                ? btnColor.withOpacity(0.4)
+                : const Color(0xFF3E3E3E),
+          ),
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: onTap != null
+              ? btnColor
+              : theme.colorScheme.onSurface.withOpacity(0.2),
         ),
       ),
     );
@@ -519,9 +711,8 @@ class _PaidMonthsSelector extends StatelessWidget {
           Row(
             children: [
               IconButton(
-                onPressed: paidMonths > 0
-                    ? () => onChanged(paidMonths - 1)
-                    : null,
+                onPressed:
+                    paidMonths > 0 ? () => onChanged(paidMonths - 1) : null,
                 icon: const Icon(Icons.remove_circle_outline),
                 style: IconButton.styleFrom(
                   foregroundColor: theme.colorScheme.primary,
@@ -560,10 +751,9 @@ class _PaidMonthsSelector extends StatelessWidget {
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
               value: totalMonths > 0 ? paidMonths / totalMonths : 0,
-              backgroundColor:
-                  theme.colorScheme.onSurface.withOpacity(0.1),
-              valueColor: AlwaysStoppedAnimation<Color>(
-                  theme.colorScheme.primary),
+              backgroundColor: theme.colorScheme.onSurface.withOpacity(0.1),
+              valueColor:
+                  AlwaysStoppedAnimation<Color>(theme.colorScheme.primary),
               minHeight: 6,
             ),
           ),

@@ -7,6 +7,7 @@ class LoanCard extends StatelessWidget {
   final VoidCallback? onMarkPaid;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final VoidCallback? onViewPayments;
 
   const LoanCard({
     super.key,
@@ -14,13 +15,14 @@ class LoanCard extends StatelessWidget {
     this.onMarkPaid,
     this.onEdit,
     this.onDelete,
+    this.onViewPayments,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currencyFormatter =
-        NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+        NumberFormat.currency(symbol: 'LKR ', decimalDigits: 2);
     final dateFormatter = DateFormat('MMM d, yyyy');
 
     Color statusColor;
@@ -43,7 +45,7 @@ class LoanCard extends StatelessWidget {
 
     return Card(
       child: InkWell(
-        onTap: onEdit,
+        onTap: onViewPayments ?? onEdit,
         borderRadius: BorderRadius.circular(16),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -115,6 +117,16 @@ class LoanCard extends StatelessWidget {
                     ),
                     color: theme.colorScheme.surfaceVariant,
                     itemBuilder: (context) => [
+                      PopupMenuItem(
+                        value: 'history',
+                        child: const Row(
+                          children: [
+                            Icon(Icons.calendar_month_outlined, size: 18),
+                            SizedBox(width: 8),
+                            Text('Payment History'),
+                          ],
+                        ),
+                      ),
                       if (!loan.isCompleted)
                         PopupMenuItem(
                           value: 'paid',
@@ -122,7 +134,7 @@ class LoanCard extends StatelessWidget {
                             children: [
                               Icon(Icons.check_circle_outline, size: 18),
                               SizedBox(width: 8),
-                              Text('Mark Month Paid'),
+                              Text('Mark This Month Paid'),
                             ],
                           ),
                         ),
@@ -152,6 +164,9 @@ class LoanCard extends StatelessWidget {
                     ],
                     onSelected: (value) {
                       switch (value) {
+                        case 'history':
+                          onViewPayments?.call();
+                          break;
                         case 'paid':
                           onMarkPaid?.call();
                           break;

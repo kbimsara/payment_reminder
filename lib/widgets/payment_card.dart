@@ -19,7 +19,7 @@ class PaymentCard extends StatelessWidget {
     final theme = Theme.of(context);
     final payment = status.payment;
     final color = payment.displayColor;
-    final formatter = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+    final formatter = NumberFormat.currency(symbol: 'LKR ', decimalDigits: 2);
 
     return Card(
       child: InkWell(
@@ -194,7 +194,7 @@ class BillListCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final color = payment.displayColor;
-    final formatter = NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+    final formatter = NumberFormat.currency(symbol: 'LKR ', decimalDigits: 2);
 
     return Card(
       child: InkWell(

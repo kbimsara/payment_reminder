@@ -2,14 +2,16 @@ import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import '../models/payment.dart';
 import '../models/loan.dart';
+import '../models/loan_payment_month.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'payment_reminder.db';
-  static const _databaseVersion = 1;
+  static const _databaseVersion = 2;
 
   static const tablePayments = 'payments';
   static const tableLoans = 'loans';
   static const tablePaymentStatus = 'payment_status';
+  static const tableLoanPaymentMonths = 'loan_payment_months';
 
   static DatabaseHelper? _instance;
   static Database? _database;
@@ -35,6 +37,9 @@ class DatabaseHelper {
       version: _databaseVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onConfigure: (db) async {
+        await db.execute('PRAGMA foreign_keys = ON');
+      },
     );
   }
 
@@ -80,10 +85,36 @@ class DatabaseHelper {
         UNIQUE(paymentId, year, month)
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE $tableLoanPaymentMonths (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        loanId INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        month INTEGER NOT NULL,
+        isPaid INTEGER NOT NULL DEFAULT 0,
+        paidDate TEXT,
+        FOREIGN KEY (loanId) REFERENCES $tableLoans (id) ON DELETE CASCADE,
+        UNIQUE(loanId, year, month)
+      )
+    ''');
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle migrations here for future versions
+    if (oldVersion < 2) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $tableLoanPaymentMonths (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          loanId INTEGER NOT NULL,
+          year INTEGER NOT NULL,
+          month INTEGER NOT NULL,
+          isPaid INTEGER NOT NULL DEFAULT 0,
+          paidDate TEXT,
+          FOREIGN KEY (loanId) REFERENCES $tableLoans (id) ON DELETE CASCADE,
+          UNIQUE(loanId, year, month)
+        )
+      ''');
+    }
   }
 
   // ==================== PAYMENT CRUD ====================
@@ -237,7 +268,6 @@ class DatabaseHelper {
 
   Future<List<Loan>> getActiveLoans() async {
     final db = await database;
-    final now = DateTime.now();
     final List<Map<String, dynamic>> maps = await db.query(
       tableLoans,
       orderBy: 'endDate ASC',
@@ -269,6 +299,11 @@ class DatabaseHelper {
 
   Future<int> deleteLoan(int id) async {
     final db = await database;
+    await db.delete(
+      tableLoanPaymentMonths,
+      where: 'loanId = ?',
+      whereArgs: [id],
+    );
     return await db.delete(
       tableLoans,
       where: 'id = ?',
@@ -276,19 +311,64 @@ class DatabaseHelper {
     );
   }
 
-  Future<int> incrementLoanPaidMonths(int id) async {
-    final loan = await getLoanById(id);
-    if (loan == null) return 0;
-    final updated = loan.copyWith(paidMonths: loan.paidMonths + 1);
-    return await updateLoan(updated);
+  // ==================== LOAN PAYMENT MONTHS ====================
+
+  Future<List<LoanPaymentMonth>> getLoanPaymentMonths(int loanId) async {
+    final db = await database;
+    final maps = await db.query(
+      tableLoanPaymentMonths,
+      where: 'loanId = ?',
+      whereArgs: [loanId],
+      orderBy: 'year ASC, month ASC',
+    );
+    return maps.map((m) => LoanPaymentMonth.fromMap(m)).toList();
   }
 
-  Future<int> decrementLoanPaidMonths(int id) async {
-    final loan = await getLoanById(id);
-    if (loan == null) return 0;
-    if (loan.paidMonths <= 0) return 0;
-    final updated = loan.copyWith(paidMonths: loan.paidMonths - 1);
-    return await updateLoan(updated);
+  Future<LoanPaymentMonth?> getLoanPaymentMonth(
+      int loanId, int year, int month) async {
+    final db = await database;
+    final maps = await db.query(
+      tableLoanPaymentMonths,
+      where: 'loanId = ? AND year = ? AND month = ?',
+      whereArgs: [loanId, year, month],
+    );
+    if (maps.isEmpty) return null;
+    return LoanPaymentMonth.fromMap(maps.first);
+  }
+
+  Future<void> toggleLoanMonthPaid({
+    required int loanId,
+    required int year,
+    required int month,
+    required bool isPaid,
+  }) async {
+    final db = await database;
+
+    await db.insert(
+      tableLoanPaymentMonths,
+      {
+        'loanId': loanId,
+        'year': year,
+        'month': month,
+        'isPaid': isPaid ? 1 : 0,
+        'paidDate': isPaid ? DateTime.now().toIso8601String() : null,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+
+    // Keep paidMonths count in sync with actual paid records
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) as count FROM $tableLoanPaymentMonths WHERE loanId = ? AND isPaid = 1',
+      [loanId],
+    );
+    final count = result.first['count'] as int? ?? 0;
+
+    await db.update(
+      tableLoans,
+      {'paidMonths': count},
+      where: 'id = ?',
+      whereArgs: [loanId],
+    );
   }
 
   // ==================== SUMMARY ====================

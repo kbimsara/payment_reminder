@@ -145,7 +145,7 @@ class _HomeTabState extends State<_HomeTab> {
     final theme = Theme.of(context);
     final monthTitle = DateFormat('MMMM yyyy').format(_currentMonth);
     final currencyFormatter =
-        NumberFormat.currency(symbol: '\$', decimalDigits: 2);
+        NumberFormat.currency(symbol: 'LKR ', decimalDigits: 2);
     final totalDue = _summary['totalDue'] ?? 0;
     final totalPaid = _summary['totalPaid'] ?? 0;
     final remaining = _summary['remaining'] ?? 0;
@@ -284,7 +284,13 @@ class _HomeTabState extends State<_HomeTab> {
                           return LoanCard(
                             loan: loan,
                             onMarkPaid: () async {
-                              await _db.incrementLoanPaidMonths(loan.id!);
+                              final now = DateTime.now();
+                              await _db.toggleLoanMonthPaid(
+                                loanId: loan.id!,
+                                year: now.year,
+                                month: now.month,
+                                isPaid: true,
+                              );
                               await _loadData();
                             },
                           );
