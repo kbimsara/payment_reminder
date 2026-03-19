@@ -63,7 +63,10 @@ class _BillsScreenState extends State<BillsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${payment.title} deleted'),
+            content: Text('"${payment.title}" deleted'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
             action: SnackBarAction(label: 'OK', onPressed: () {}),
           ),
         );
@@ -261,7 +264,7 @@ class _StatsRow extends StatelessWidget {
           const VerticalDivider(width: 32),
           _StatItem(
             label: 'Monthly Total',
-            value: '\$${totalAmount.toStringAsFixed(0)}',
+            value: 'LKR ${totalAmount.toStringAsFixed(0)}',
             color: theme.colorScheme.secondary,
             theme: theme,
           ),

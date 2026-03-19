@@ -1,17 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/payment.dart';
+import '../models/income_source.dart';
 
 class PaymentCard extends StatelessWidget {
   final MonthlyPaymentStatus status;
   final VoidCallback? onTogglePaid;
   final VoidCallback? onTap;
+  final Map<int, IncomeSource>? sourcesMap;
 
   const PaymentCard({
     super.key,
     required this.status,
     this.onTogglePaid,
     this.onTap,
+    this.sourcesMap,
   });
 
   @override
@@ -97,12 +101,48 @@ class PaymentCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      payment.category.displayName,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: color.withOpacity(0.8),
-                        fontWeight: FontWeight.w500,
-                      ),
+                    Row(
+                      children: [
+                        Text(
+                          payment.category.displayName,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: color.withOpacity(0.8),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        // Income source badge
+                        if (status.isPaid &&
+                            status.incomeSourceId != null &&
+                            sourcesMap != null &&
+                            sourcesMap![status.incomeSourceId] != null) ...[
+                          const SizedBox(width: 6),
+                          Builder(builder: (ctx) {
+                            final src =
+                                sourcesMap![status.incomeSourceId]!;
+                            return Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 5, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: src.color.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(src.icon,
+                                      size: 10, color: src.color),
+                                  const SizedBox(width: 3),
+                                  Text(src.name,
+                                      style: TextStyle(
+                                          fontSize: 9,
+                                          color: src.color,
+                                          fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
+                      ],
                     ),
                   ],
                 ),
@@ -123,7 +163,10 @@ class PaymentCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   GestureDetector(
-                    onTap: onTogglePaid,
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      onTogglePaid?.call();
+                    },
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),

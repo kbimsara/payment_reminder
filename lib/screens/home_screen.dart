@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../models/payment.dart';
 import '../models/loan.dart';
+import '../models/income_source.dart';
 import '../widgets/payment_card.dart';
 import '../widgets/loan_card.dart';
 import 'bills_screen.dart';
 import 'loans_screen.dart';
+import 'income_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -27,6 +30,7 @@ class _HomeScreenState extends State<HomeScreen> {
       const _HomeTab(),
       const BillsScreen(),
       const LoansScreen(),
+      const IncomeScreen(),
     ]);
   }
 
@@ -37,24 +41,30 @@ class _HomeScreenState extends State<HomeScreen> {
         index: _currentIndex,
         children: _screens,
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) => setState(() => _currentIndex = index),
-        items: const [
-          BottomNavigationBarItem(
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (index) =>
+            setState(() => _currentIndex = index),
+        destinations: const [
+          NavigationDestination(
             icon: Icon(Icons.home_outlined),
-            activeIcon: Icon(Icons.home),
+            selectedIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          BottomNavigationBarItem(
+          NavigationDestination(
             icon: Icon(Icons.receipt_long_outlined),
-            activeIcon: Icon(Icons.receipt_long),
+            selectedIcon: Icon(Icons.receipt_long),
             label: 'Bills',
           ),
-          BottomNavigationBarItem(
+          NavigationDestination(
             icon: Icon(Icons.account_balance_outlined),
-            activeIcon: Icon(Icons.account_balance),
+            selectedIcon: Icon(Icons.account_balance),
             label: 'Loans',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.account_balance_wallet_outlined),
+            selectedIcon: Icon(Icons.account_balance_wallet),
+            label: 'Income',
           ),
         ],
       ),
@@ -74,6 +84,7 @@ class _HomeTabState extends State<_HomeTab> {
   List<MonthlyPaymentStatus> _paymentStatuses = [];
   List<Loan> _activeLoans = [];
   Map<String, double> _summary = {};
+  Map<int, IncomeSource> _sourcesMap = {};
   bool _isLoading = true;
   late DateTime _currentMonth;
 
@@ -96,11 +107,13 @@ class _HomeTabState extends State<_HomeTab> {
         _currentMonth.year,
         _currentMonth.month,
       );
+      final sources = await _db.getActiveIncomeSources();
       if (mounted) {
         setState(() {
           _paymentStatuses = statuses;
           _activeLoans = loans.where((l) => l.isCurrentMonthDue).toList();
           _summary = summary;
+          _sourcesMap = {for (final s in sources) s.id!: s};
           _isLoading = false;
         });
       }
@@ -111,14 +124,116 @@ class _HomeTabState extends State<_HomeTab> {
     }
   }
 
+  String get _greeting {
+    final hour = DateTime.now().hour;
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }
+
   Future<void> _togglePaymentPaid(MonthlyPaymentStatus status) async {
-    await _db.setPaymentPaidStatus(
-      paymentId: status.payment.id!,
-      year: _currentMonth.year,
-      month: _currentMonth.month,
-      isPaid: !status.isPaid,
-    );
+    HapticFeedback.lightImpact();
+    if (!status.isPaid) {
+      // Marking as paid → ask which income source
+      final sourceId = await _showSourcePickerDialog(status);
+      if (sourceId == null) return; // user cancelled
+      await _db.setPaymentPaidStatus(
+        paymentId: status.payment.id!,
+        year: _currentMonth.year,
+        month: _currentMonth.month,
+        isPaid: true,
+        incomeSourceId: sourceId,
+      );
+    } else {
+      // Unmarking
+      await _db.setPaymentPaidStatus(
+        paymentId: status.payment.id!,
+        year: _currentMonth.year,
+        month: _currentMonth.month,
+        isPaid: false,
+      );
+    }
     await _loadData();
+  }
+
+  Future<int?> _showSourcePickerDialog(MonthlyPaymentStatus status) async {
+    final sources = await _db.getActiveIncomeSources();
+    if (!mounted) return null;
+
+    int? selected = sources.isNotEmpty ? sources.first.id : null;
+
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setInner) => AlertDialog(
+          backgroundColor: Theme.of(ctx).colorScheme.surfaceVariant,
+          title: const Text('Mark as Paid'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Bill info banner
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Theme.of(ctx)
+                      .colorScheme
+                      .primary
+                      .withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Row(
+                  children: [
+                    Icon(status.payment.category.icon,
+                        color: status.payment.category.color, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(status.payment.title,
+                          style: Theme.of(ctx)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w600)),
+                    ),
+                    Text(
+                      'LKR ${status.payment.amount.toStringAsFixed(0)}',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(ctx).colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Paid from which income source?',
+                  style: Theme.of(ctx).textTheme.bodyMedium),
+              const SizedBox(height: 10),
+              // Source radio list
+              ...sources.map((src) => _SourceRadioTile(
+                    source: src,
+                    groupValue: selected,
+                    onChanged: (v) => setInner(() => selected = v),
+                  )),
+              if (sources.isEmpty)
+                const Text(
+                    'No income sources found. Add one in the Income tab.'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: sources.isEmpty
+                  ? null
+                  : () => Navigator.pop(ctx, selected),
+              child: const Text('Confirm'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _goToPreviousMonth() {
@@ -154,7 +269,19 @@ class _HomeTabState extends State<_HomeTab> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Payment Reminder'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _greeting,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.primary,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            const Text('Payment Reminder'),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_outlined),
@@ -249,6 +376,7 @@ class _HomeTabState extends State<_HomeTab> {
                           return PaymentCard(
                             status: status,
                             onTogglePaid: () => _togglePaymentPaid(status),
+                            sourcesMap: _sourcesMap,
                           );
                         },
                         childCount: _paymentStatuses.length,
@@ -457,6 +585,62 @@ class _EmptyBillsHint extends StatelessWidget {
             textAlign: TextAlign.center,
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ─── Source radio tile used in mark-paid dialog ────────────
+class _SourceRadioTile extends StatelessWidget {
+  final IncomeSource source;
+  final int? groupValue;
+  final ValueChanged<int?> onChanged;
+
+  const _SourceRadioTile({
+    required this.source,
+    required this.groupValue,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSelected = groupValue == source.id;
+    return GestureDetector(
+      onTap: () => onChanged(source.id),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? source.color.withOpacity(0.12)
+              : Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? source.color
+                : const Color(0xFF3E3E3E),
+            width: isSelected ? 2 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(source.icon,
+                color: isSelected ? source.color : Colors.grey, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(source.name,
+                  style: TextStyle(
+                    fontWeight:
+                        isSelected ? FontWeight.bold : FontWeight.normal,
+                    color: isSelected ? source.color : null,
+                  )),
+            ),
+            if (isSelected)
+              Icon(Icons.check_circle, color: source.color, size: 18),
+          ],
+        ),
       ),
     );
   }

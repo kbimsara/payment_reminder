@@ -181,6 +181,7 @@ class MonthlyPaymentStatus {
   final DateTime? paidDate;
   final int year;
   final int month;
+  final int? incomeSourceId;
 
   const MonthlyPaymentStatus({
     required this.payment,
@@ -188,6 +189,7 @@ class MonthlyPaymentStatus {
     this.paidDate,
     required this.year,
     required this.month,
+    this.incomeSourceId,
   });
 
   DateTime get dueDate {
@@ -207,6 +209,7 @@ class MonthlyPaymentStatus {
     DateTime? paidDate,
     int? year,
     int? month,
+    int? incomeSourceId,
   }) {
     return MonthlyPaymentStatus(
       payment: payment ?? this.payment,
@@ -214,6 +217,7 @@ class MonthlyPaymentStatus {
       paidDate: paidDate ?? this.paidDate,
       year: year ?? this.year,
       month: month ?? this.month,
+      incomeSourceId: incomeSourceId ?? this.incomeSourceId,
     );
   }
 }

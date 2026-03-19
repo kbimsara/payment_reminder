@@ -73,12 +73,26 @@ class PaymentReminderApp extends StatelessWidget {
           fontWeight: FontWeight.bold,
         ),
       ),
-      bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+      navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surface,
-        selectedItemColor: primary,
-        unselectedItemColor: Color(0xFF8E8E8E),
-        type: BottomNavigationBarType.fixed,
+        indicatorColor: primary.withOpacity(0.18),
+        surfaceTintColor: Colors.transparent,
         elevation: 8,
+        labelTextStyle: MaterialStateProperty.resolveWith((states) {
+          final selected = states.contains(MaterialState.selected);
+          return TextStyle(
+            fontSize: 12,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: selected ? primary : const Color(0xFF8E8E8E),
+          );
+        }),
+        iconTheme: MaterialStateProperty.resolveWith((states) {
+          final selected = states.contains(MaterialState.selected);
+          return IconThemeData(
+            color: selected ? primary : const Color(0xFF8E8E8E),
+            size: 24,
+          );
+        }),
       ),
       floatingActionButtonTheme: const FloatingActionButtonThemeData(
         backgroundColor: primary,

@@ -73,9 +73,11 @@ class _LoanPaymentScreenState extends State<LoanPaymentScreen> {
 
     if (date.isAfter(currentMonthStart)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Cannot mark future months as paid'),
+        SnackBar(
+          content: const Text('Cannot mark future months as paid'),
           behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10)),
         ),
       );
       return;
@@ -347,7 +349,7 @@ class _LoanPaymentScreenState extends State<LoanPaymentScreen> {
                       ),
                     ),
                     Text(
-                      '${date.day > 1 ? '' : ''}${date.month.toString().padLeft(2, '0')}',
+                      date.year.toString(),
                       style: TextStyle(
                         fontSize: 10,
                         color: accent.withOpacity(0.6),

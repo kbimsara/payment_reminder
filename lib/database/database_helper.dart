@@ -3,15 +3,19 @@ import 'package:path/path.dart';
 import '../models/payment.dart';
 import '../models/loan.dart';
 import '../models/loan_payment_month.dart';
+import '../models/income_source.dart';
+import '../models/income_transaction.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'payment_reminder.db';
-  static const _databaseVersion = 2;
+  static const _databaseVersion = 3;
 
   static const tablePayments = 'payments';
   static const tableLoans = 'loans';
   static const tablePaymentStatus = 'payment_status';
   static const tableLoanPaymentMonths = 'loan_payment_months';
+  static const tableIncomeSources = 'income_sources';
+  static const tableIncomeTransactions = 'income_transactions';
 
   static DatabaseHelper? _instance;
   static Database? _database;
@@ -81,6 +85,7 @@ class DatabaseHelper {
         month INTEGER NOT NULL,
         isPaid INTEGER NOT NULL DEFAULT 0,
         paidDate TEXT,
+        incomeSourceId INTEGER,
         FOREIGN KEY (paymentId) REFERENCES $tablePayments (id) ON DELETE CASCADE,
         UNIQUE(paymentId, year, month)
       )
@@ -96,6 +101,47 @@ class DatabaseHelper {
         paidDate TEXT,
         FOREIGN KEY (loanId) REFERENCES $tableLoans (id) ON DELETE CASCADE,
         UNIQUE(loanId, year, month)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE $tableIncomeSources (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        iconName TEXT NOT NULL DEFAULT 'other',
+        colorHex TEXT NOT NULL DEFAULT '#607D8B',
+        isDefault INTEGER NOT NULL DEFAULT 0,
+        isActive INTEGER NOT NULL DEFAULT 1
+      )
+    ''');
+
+    // Insert built-in sources
+    await db.insert(tableIncomeSources, {
+      'name': 'Salary',
+      'iconName': 'salary',
+      'colorHex': '#4CAF50',
+      'isDefault': 1,
+      'isActive': 1,
+    });
+    await db.insert(tableIncomeSources, {
+      'name': 'Other',
+      'iconName': 'other',
+      'colorHex': '#607D8B',
+      'isDefault': 1,
+      'isActive': 1,
+    });
+
+    await db.execute('''
+      CREATE TABLE $tableIncomeTransactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sourceId INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        amount REAL NOT NULL,
+        date TEXT NOT NULL,
+        month INTEGER NOT NULL,
+        year INTEGER NOT NULL,
+        notes TEXT,
+        FOREIGN KEY (sourceId) REFERENCES $tableIncomeSources (id) ON DELETE CASCADE
       )
     ''');
   }
@@ -115,105 +161,114 @@ class DatabaseHelper {
         )
       ''');
     }
+    if (oldVersion < 3) {
+      // Add incomeSourceId to payment_status
+      await db.execute(
+          'ALTER TABLE $tablePaymentStatus ADD COLUMN incomeSourceId INTEGER');
+
+      // Create income_sources table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $tableIncomeSources (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          iconName TEXT NOT NULL DEFAULT 'other',
+          colorHex TEXT NOT NULL DEFAULT '#607D8B',
+          isDefault INTEGER NOT NULL DEFAULT 0,
+          isActive INTEGER NOT NULL DEFAULT 1
+        )
+      ''');
+
+      // Insert built-in sources
+      await db.insert(tableIncomeSources, {
+        'name': 'Salary',
+        'iconName': 'salary',
+        'colorHex': '#4CAF50',
+        'isDefault': 1,
+        'isActive': 1,
+      });
+      await db.insert(tableIncomeSources, {
+        'name': 'Other',
+        'iconName': 'other',
+        'colorHex': '#607D8B',
+        'isDefault': 1,
+        'isActive': 1,
+      });
+
+      // Create income_transactions table
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS $tableIncomeTransactions (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          sourceId INTEGER NOT NULL,
+          title TEXT NOT NULL,
+          amount REAL NOT NULL,
+          date TEXT NOT NULL,
+          month INTEGER NOT NULL,
+          year INTEGER NOT NULL,
+          notes TEXT,
+          FOREIGN KEY (sourceId) REFERENCES $tableIncomeSources (id) ON DELETE CASCADE
+        )
+      ''');
+    }
   }
 
   // ==================== PAYMENT CRUD ====================
 
   Future<int> insertPayment(Payment payment) async {
     final db = await database;
-    return await db.insert(
-      tablePayments,
-      payment.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    return await db.insert(tablePayments, payment.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Payment>> getAllPayments() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tablePayments,
-      orderBy: 'dueDay ASC',
-    );
+    final maps =
+        await db.query(tablePayments, orderBy: 'dueDay ASC');
     return maps.map((m) => Payment.fromMap(m)).toList();
   }
 
   Future<List<Payment>> getActivePayments() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tablePayments,
-      where: 'isActive = ?',
-      whereArgs: [1],
-      orderBy: 'dueDay ASC',
-    );
+    final maps = await db.query(tablePayments,
+        where: 'isActive = ?', whereArgs: [1], orderBy: 'dueDay ASC');
     return maps.map((m) => Payment.fromMap(m)).toList();
   }
 
   Future<Payment?> getPaymentById(int id) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tablePayments,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final maps =
+        await db.query(tablePayments, where: 'id = ?', whereArgs: [id]);
     if (maps.isEmpty) return null;
     return Payment.fromMap(maps.first);
   }
 
   Future<int> updatePayment(Payment payment) async {
     final db = await database;
-    return await db.update(
-      tablePayments,
-      payment.toMap(),
-      where: 'id = ?',
-      whereArgs: [payment.id],
-    );
+    return await db.update(tablePayments, payment.toMap(),
+        where: 'id = ?', whereArgs: [payment.id]);
   }
 
   Future<int> deletePayment(int id) async {
     final db = await database;
-    await db.delete(
-      tablePaymentStatus,
-      where: 'paymentId = ?',
-      whereArgs: [id],
-    );
-    return await db.delete(
-      tablePayments,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete(tablePaymentStatus,
+        where: 'paymentId = ?', whereArgs: [id]);
+    return await db
+        .delete(tablePayments, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<int> togglePaymentActive(int id, bool isActive) async {
     final db = await database;
-    return await db.update(
-      tablePayments,
-      {'isActive': isActive ? 1 : 0},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    return await db.update(tablePayments, {'isActive': isActive ? 1 : 0},
+        where: 'id = ?', whereArgs: [id]);
   }
 
-  // ==================== PAYMENT STATUS CRUD ====================
-
-  Future<Map<int, bool>> getPaymentStatusForMonth(int year, int month) async {
-    final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tablePaymentStatus,
-      where: 'year = ? AND month = ?',
-      whereArgs: [year, month],
-    );
-    final Map<int, bool> statusMap = {};
-    for (final map in maps) {
-      statusMap[map['paymentId'] as int] = (map['isPaid'] as int) == 1;
-    }
-    return statusMap;
-  }
+  // ==================== PAYMENT STATUS ====================
 
   Future<void> setPaymentPaidStatus({
     required int paymentId,
     required int year,
     required int month,
     required bool isPaid,
+    int? incomeSourceId,
   }) async {
     final db = await database;
     await db.insert(
@@ -224,6 +279,7 @@ class DatabaseHelper {
         'month': month,
         'isPaid': isPaid ? 1 : 0,
         'paidDate': isPaid ? DateTime.now().toIso8601String() : null,
+        'incomeSourceId': isPaid ? incomeSourceId : null,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -232,15 +288,27 @@ class DatabaseHelper {
   Future<List<MonthlyPaymentStatus>> getMonthlyPaymentStatuses(
       int year, int month) async {
     final payments = await getActivePayments();
-    final statusMap = await getPaymentStatusForMonth(year, month);
-
+    final db = await database;
+    final statusRows = await db.query(
+      tablePaymentStatus,
+      where: 'year = ? AND month = ?',
+      whereArgs: [year, month],
+    );
+    final statusMap = <int, Map<String, dynamic>>{};
+    for (final row in statusRows) {
+      statusMap[row['paymentId'] as int] = row;
+    }
     return payments.map((payment) {
-      final isPaid = statusMap[payment.id] ?? false;
+      final row = statusMap[payment.id];
       return MonthlyPaymentStatus(
         payment: payment,
-        isPaid: isPaid,
+        isPaid: row != null && (row['isPaid'] as int) == 1,
+        paidDate: row?['paidDate'] != null
+            ? DateTime.tryParse(row!['paidDate'] as String)
+            : null,
         year: year,
         month: month,
+        incomeSourceId: row?['incomeSourceId'] as int?,
       );
     }).toList()
       ..sort((a, b) => a.payment.dueDay.compareTo(b.payment.dueDay));
@@ -250,88 +318,61 @@ class DatabaseHelper {
 
   Future<int> insertLoan(Loan loan) async {
     final db = await database;
-    return await db.insert(
-      tableLoans,
-      loan.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    return await db.insert(tableLoans, loan.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Loan>> getAllLoans() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tableLoans,
-      orderBy: 'endDate ASC',
-    );
+    final maps = await db.query(tableLoans, orderBy: 'endDate ASC');
     return maps.map((m) => Loan.fromMap(m)).toList();
   }
 
   Future<List<Loan>> getActiveLoans() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tableLoans,
-      orderBy: 'endDate ASC',
-    );
+    final maps = await db.query(tableLoans, orderBy: 'endDate ASC');
     final loans = maps.map((m) => Loan.fromMap(m)).toList();
     return loans.where((l) => !l.isCompleted).toList();
   }
 
   Future<Loan?> getLoanById(int id) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
-      tableLoans,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    final maps =
+        await db.query(tableLoans, where: 'id = ?', whereArgs: [id]);
     if (maps.isEmpty) return null;
     return Loan.fromMap(maps.first);
   }
 
   Future<int> updateLoan(Loan loan) async {
     final db = await database;
-    return await db.update(
-      tableLoans,
-      loan.toMap(),
-      where: 'id = ?',
-      whereArgs: [loan.id],
-    );
+    return await db.update(tableLoans, loan.toMap(),
+        where: 'id = ?', whereArgs: [loan.id]);
   }
 
   Future<int> deleteLoan(int id) async {
     final db = await database;
-    await db.delete(
-      tableLoanPaymentMonths,
-      where: 'loanId = ?',
-      whereArgs: [id],
-    );
-    return await db.delete(
-      tableLoans,
-      where: 'id = ?',
-      whereArgs: [id],
-    );
+    await db.delete(tableLoanPaymentMonths,
+        where: 'loanId = ?', whereArgs: [id]);
+    return await db.delete(tableLoans, where: 'id = ?', whereArgs: [id]);
   }
 
   // ==================== LOAN PAYMENT MONTHS ====================
 
   Future<List<LoanPaymentMonth>> getLoanPaymentMonths(int loanId) async {
     final db = await database;
-    final maps = await db.query(
-      tableLoanPaymentMonths,
-      where: 'loanId = ?',
-      whereArgs: [loanId],
-      orderBy: 'year ASC, month ASC',
-    );
+    final maps = await db.query(tableLoanPaymentMonths,
+        where: 'loanId = ?',
+        whereArgs: [loanId],
+        orderBy: 'year ASC, month ASC');
     return maps.map((m) => LoanPaymentMonth.fromMap(m)).toList();
   }
 
   Future<LoanPaymentMonth?> getLoanPaymentMonth(
       int loanId, int year, int month) async {
     final db = await database;
-    final maps = await db.query(
-      tableLoanPaymentMonths,
-      where: 'loanId = ? AND year = ? AND month = ?',
-      whereArgs: [loanId, year, month],
-    );
+    final maps = await db.query(tableLoanPaymentMonths,
+        where: 'loanId = ? AND year = ? AND month = ?',
+        whereArgs: [loanId, year, month]);
     if (maps.isEmpty) return null;
     return LoanPaymentMonth.fromMap(maps.first);
   }
@@ -343,7 +384,6 @@ class DatabaseHelper {
     required bool isPaid,
   }) async {
     final db = await database;
-
     await db.insert(
       tableLoanPaymentMonths,
       {
@@ -355,41 +395,148 @@ class DatabaseHelper {
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
-
-    // Keep paidMonths count in sync with actual paid records
+    // Keep paidMonths count in sync
     final result = await db.rawQuery(
       'SELECT COUNT(*) as count FROM $tableLoanPaymentMonths WHERE loanId = ? AND isPaid = 1',
       [loanId],
     );
     final count = result.first['count'] as int? ?? 0;
-
-    await db.update(
-      tableLoans,
-      {'paidMonths': count},
-      where: 'id = ?',
-      whereArgs: [loanId],
-    );
+    await db.update(tableLoans, {'paidMonths': count},
+        where: 'id = ?', whereArgs: [loanId]);
   }
 
-  // ==================== SUMMARY ====================
+  // ==================== INCOME SOURCES ====================
+
+  Future<int> insertIncomeSource(IncomeSource source) async {
+    final db = await database;
+    return await db.insert(tableIncomeSources, source.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<IncomeSource>> getAllIncomeSources() async {
+    final db = await database;
+    final maps = await db.query(tableIncomeSources,
+        orderBy: 'isDefault DESC, name ASC');
+    return maps.map((m) => IncomeSource.fromMap(m)).toList();
+  }
+
+  Future<List<IncomeSource>> getActiveIncomeSources() async {
+    final db = await database;
+    final maps = await db.query(tableIncomeSources,
+        where: 'isActive = ?',
+        whereArgs: [1],
+        orderBy: 'isDefault DESC, name ASC');
+    return maps.map((m) => IncomeSource.fromMap(m)).toList();
+  }
+
+  Future<int> updateIncomeSource(IncomeSource source) async {
+    final db = await database;
+    return await db.update(tableIncomeSources, source.toMap(),
+        where: 'id = ?', whereArgs: [source.id]);
+  }
+
+  Future<int> deleteIncomeSource(int id) async {
+    final db = await database;
+    // Nullify incomeSourceId in payment_status first
+    await db.update(tablePaymentStatus, {'incomeSourceId': null},
+        where: 'incomeSourceId = ?', whereArgs: [id]);
+    return await db
+        .delete(tableIncomeSources, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ==================== INCOME TRANSACTIONS ====================
+
+  Future<int> insertIncomeTransaction(IncomeTransaction tx) async {
+    final db = await database;
+    return await db.insert(tableIncomeTransactions, tx.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<IncomeTransaction>> getIncomeTransactionsForMonth(
+      int year, int month) async {
+    final db = await database;
+    final maps = await db.query(tableIncomeTransactions,
+        where: 'year = ? AND month = ?',
+        whereArgs: [year, month],
+        orderBy: 'date DESC');
+    return maps.map((m) => IncomeTransaction.fromMap(m)).toList();
+  }
+
+  Future<int> updateIncomeTransaction(IncomeTransaction tx) async {
+    final db = await database;
+    return await db.update(tableIncomeTransactions, tx.toMap(),
+        where: 'id = ?', whereArgs: [tx.id]);
+  }
+
+  Future<int> deleteIncomeTransaction(int id) async {
+    final db = await database;
+    return await db
+        .delete(tableIncomeTransactions, where: 'id = ?', whereArgs: [id]);
+  }
+
+  // ==================== INCOME SUMMARY ====================
+
+  /// Returns a map of sourceId → total income for the given month
+  Future<Map<int, double>> getIncomeBySourceForMonth(
+      int year, int month) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT sourceId, SUM(amount) as total FROM $tableIncomeTransactions '
+      'WHERE year = ? AND month = ? GROUP BY sourceId',
+      [year, month],
+    );
+    return {
+      for (final r in rows)
+        r['sourceId'] as int: (r['total'] as num).toDouble()
+    };
+  }
+
+  /// Returns a map of sourceId → total bills paid from that source for the given month
+  Future<Map<int, double>> getBillsSpentBySourceForMonth(
+      int year, int month) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT ps.incomeSourceId, SUM(p.amount) as total '
+      'FROM $tablePaymentStatus ps '
+      'JOIN $tablePayments p ON ps.paymentId = p.id '
+      'WHERE ps.year = ? AND ps.month = ? AND ps.isPaid = 1 AND ps.incomeSourceId IS NOT NULL '
+      'GROUP BY ps.incomeSourceId',
+      [year, month],
+    );
+    return {
+      for (final r in rows)
+        r['incomeSourceId'] as int: (r['total'] as num).toDouble()
+    };
+  }
+
+  /// Returns total bills paid (including those with no source linked) for the given month
+  Future<double> getTotalBillsPaidForMonth(int year, int month) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT SUM(p.amount) as total '
+      'FROM $tablePaymentStatus ps '
+      'JOIN $tablePayments p ON ps.paymentId = p.id '
+      'WHERE ps.year = ? AND ps.month = ? AND ps.isPaid = 1',
+      [year, month],
+    );
+    return (rows.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  // ==================== COMBINED SUMMARY ====================
 
   Future<Map<String, double>> getMonthSummary(int year, int month) async {
     final statuses = await getMonthlyPaymentStatuses(year, month);
     double totalDue = 0;
     double totalPaid = 0;
 
-    for (final status in statuses) {
-      totalDue += status.payment.amount;
-      if (status.isPaid) {
-        totalPaid += status.payment.amount;
-      }
+    for (final s in statuses) {
+      totalDue += s.payment.amount;
+      if (s.isPaid) totalPaid += s.payment.amount;
     }
 
     final activeLoans = await getActiveLoans();
     for (final loan in activeLoans) {
-      if (loan.isCurrentMonthDue) {
-        totalDue += loan.monthlyAmount;
-      }
+      if (loan.isCurrentMonthDue) totalDue += loan.monthlyAmount;
     }
 
     return {

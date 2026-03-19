@@ -152,7 +152,7 @@ class _AddBillScreenState extends State<AddBillScreen> {
               controller: _amountController,
               decoration: const InputDecoration(
                 hintText: '0.00',
-                prefixIcon: Icon(Icons.attach_money),
+                prefixText: 'LKR ',
               ),
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),

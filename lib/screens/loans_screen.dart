@@ -72,9 +72,13 @@ class _LoansScreenState extends State<LoansScreen>
     );
     await _loadLoans();
     if (mounted) {
+      final monthLabel = DateFormat('MMMM yyyy').format(now);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${now.year}/${now.month} marked as paid for ${loan.title}'),
+          content: Text('$monthLabel payment marked for ${loan.title}'),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10)),
           action: SnackBarAction(label: 'OK', onPressed: () {}),
         ),
       );
@@ -99,7 +103,10 @@ class _LoansScreenState extends State<LoansScreen>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${loan.title} deleted'),
+            content: Text('"${loan.title}" deleted'),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10)),
           ),
         );
       }
