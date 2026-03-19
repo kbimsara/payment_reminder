@@ -10,6 +10,7 @@ import '../widgets/loan_card.dart';
 import 'bills_screen.dart';
 import 'loans_screen.dart';
 import 'income_screen.dart';
+import '../widgets/source_picker_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -156,85 +157,14 @@ class _HomeTabState extends State<_HomeTab> {
     await _loadData();
   }
 
-  Future<int?> _showSourcePickerDialog(MonthlyPaymentStatus status) async {
-    final sources = await _db.getActiveIncomeSources();
-    if (!mounted) return null;
-
-    int? selected = sources.isNotEmpty ? sources.first.id : null;
-
-    return showDialog<int>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setInner) => AlertDialog(
-          backgroundColor: Theme.of(ctx).colorScheme.surfaceVariant,
-          title: const Text('Mark as Paid'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Bill info banner
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Theme.of(ctx)
-                      .colorScheme
-                      .primary
-                      .withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Row(
-                  children: [
-                    Icon(status.payment.category.icon,
-                        color: status.payment.category.color, size: 18),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(status.payment.title,
-                          style: Theme.of(ctx)
-                              .textTheme
-                              .titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w600)),
-                    ),
-                    Text(
-                      'LKR ${status.payment.amount.toStringAsFixed(0)}',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(ctx).colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text('Paid from which income source?',
-                  style: Theme.of(ctx).textTheme.bodyMedium),
-              const SizedBox(height: 10),
-              // Source radio list
-              ...sources.map((src) => _SourceRadioTile(
-                    source: src,
-                    groupValue: selected,
-                    onChanged: (v) => setInner(() => selected = v),
-                  )),
-              if (sources.isEmpty)
-                const Text(
-                    'No income sources found. Add one in the Income tab.'),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: sources.isEmpty
-                  ? null
-                  : () => Navigator.pop(ctx, selected),
-              child: const Text('Confirm'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Future<int?> _showSourcePickerDialog(MonthlyPaymentStatus status) =>
+      showSourcePickerDialog(
+        context: context,
+        itemTitle: status.payment.title,
+        itemAmount: 'LKR ${status.payment.amount.toStringAsFixed(0)}',
+        itemIcon: status.payment.category.icon,
+        itemColor: status.payment.category.color,
+      );
 
   void _goToPreviousMonth() {
     setState(() {
@@ -413,11 +343,22 @@ class _HomeTabState extends State<_HomeTab> {
                             loan: loan,
                             onMarkPaid: () async {
                               final now = DateTime.now();
+                              final sourceId = await showSourcePickerDialog(
+                                context: context,
+                                itemTitle: loan.title,
+                                itemAmount:
+                                    'LKR ${loan.monthlyAmount.toStringAsFixed(0)}',
+                                itemIcon: Icons.account_balance_outlined,
+                                itemColor:
+                                    Theme.of(context).colorScheme.primary,
+                              );
+                              if (sourceId == null) return;
                               await _db.toggleLoanMonthPaid(
                                 loanId: loan.id!,
                                 year: now.year,
                                 month: now.month,
                                 isPaid: true,
+                                incomeSourceId: sourceId,
                               );
                               await _loadData();
                             },
@@ -590,58 +531,3 @@ class _EmptyBillsHint extends StatelessWidget {
   }
 }
 
-// ─── Source radio tile used in mark-paid dialog ────────────
-class _SourceRadioTile extends StatelessWidget {
-  final IncomeSource source;
-  final int? groupValue;
-  final ValueChanged<int?> onChanged;
-
-  const _SourceRadioTile({
-    required this.source,
-    required this.groupValue,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final isSelected = groupValue == source.id;
-    return GestureDetector(
-      onTap: () => onChanged(source.id),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        margin: const EdgeInsets.only(bottom: 8),
-        padding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected
-              ? source.color.withOpacity(0.12)
-              : Theme.of(context).colorScheme.surface,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isSelected
-                ? source.color
-                : const Color(0xFF3E3E3E),
-            width: isSelected ? 2 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(source.icon,
-                color: isSelected ? source.color : Colors.grey, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(source.name,
-                  style: TextStyle(
-                    fontWeight:
-                        isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? source.color : null,
-                  )),
-            ),
-            if (isSelected)
-              Icon(Icons.check_circle, color: source.color, size: 18),
-          ],
-        ),
-      ),
-    );
-  }
-}

@@ -5,6 +5,7 @@ import '../models/loan.dart';
 import '../widgets/loan_card.dart';
 import 'add_loan_screen.dart';
 import 'loan_payment_screen.dart';
+import '../widgets/source_picker_dialog.dart';
 
 class LoansScreen extends StatefulWidget {
   const LoansScreen({super.key});
@@ -64,11 +65,20 @@ class _LoansScreenState extends State<LoansScreen>
 
   Future<void> _markMonthPaid(Loan loan) async {
     final now = DateTime.now();
+    final sourceId = await showSourcePickerDialog(
+      context: context,
+      itemTitle: loan.title,
+      itemAmount: 'LKR ${loan.monthlyAmount.toStringAsFixed(0)}',
+      itemIcon: Icons.account_balance_outlined,
+      itemColor: Theme.of(context).colorScheme.primary,
+    );
+    if (sourceId == null) return;
     await _db.toggleLoanMonthPaid(
       loanId: loan.id!,
       year: now.year,
       month: now.month,
       isPaid: true,
+      incomeSourceId: sourceId,
     );
     await _loadLoans();
     if (mounted) {

@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import '../database/database_helper.dart';
 import '../models/loan.dart';
 import '../models/loan_payment_month.dart';
+import '../models/income_source.dart';
+import '../widgets/source_picker_dialog.dart';
 
 class LoanPaymentScreen extends StatefulWidget {
   final Loan loan;
@@ -16,6 +18,7 @@ class LoanPaymentScreen extends StatefulWidget {
 class _LoanPaymentScreenState extends State<LoanPaymentScreen> {
   final _db = DatabaseHelper();
   Map<String, LoanPaymentMonth> _paymentMap = {};
+  Map<int, IncomeSource> _sourcesMap = {};
   bool _isLoading = true;
 
   final _monthFmt = DateFormat('MMM');
@@ -31,11 +34,13 @@ class _LoanPaymentScreenState extends State<LoanPaymentScreen> {
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     final records = await _db.getLoanPaymentMonths(widget.loan.id!);
+    final sources = await _db.getActiveIncomeSources();
     if (mounted) {
       setState(() {
         _paymentMap = {
           for (final r in records) '${r.year}-${r.month}': r,
         };
+        _sourcesMap = {for (final s in sources) s.id!: s};
         _isLoading = false;
       });
     }
@@ -87,12 +92,31 @@ class _LoanPaymentScreenState extends State<LoanPaymentScreen> {
     final current = _paymentMap[key];
     final newIsPaid = !(current?.isPaid ?? false);
 
-    await _db.toggleLoanMonthPaid(
-      loanId: widget.loan.id!,
-      year: date.year,
-      month: date.month,
-      isPaid: newIsPaid,
-    );
+    if (newIsPaid) {
+      // Ask which income source
+      final sourceId = await showSourcePickerDialog(
+        context: context,
+        itemTitle: widget.loan.title,
+        itemAmount: 'LKR ${widget.loan.monthlyAmount.toStringAsFixed(0)}',
+        itemIcon: Icons.account_balance_outlined,
+        itemColor: Theme.of(context).colorScheme.primary,
+      );
+      if (sourceId == null) return; // user cancelled
+      await _db.toggleLoanMonthPaid(
+        loanId: widget.loan.id!,
+        year: date.year,
+        month: date.month,
+        isPaid: true,
+        incomeSourceId: sourceId,
+      );
+    } else {
+      await _db.toggleLoanMonthPaid(
+        loanId: widget.loan.id!,
+        year: date.year,
+        month: date.month,
+        isPaid: false,
+      );
+    }
 
     await _loadData();
   }
@@ -288,6 +312,9 @@ class _LoanPaymentScreenState extends State<LoanPaymentScreen> {
     final record = _paymentMap[key];
     final isPaid = record?.isPaid ?? false;
     final paidDate = record?.paidDate;
+    final paidSource = record?.incomeSourceId != null
+        ? _sourcesMap[record!.incomeSourceId!]
+        : null;
 
     // Determine colours & labels
     Color accent;
@@ -412,6 +439,34 @@ class _LoanPaymentScreenState extends State<LoanPaymentScreen> {
                         ),
                       ],
                     ),
+                    // Income source badge when paid
+                    if (isPaid && paidSource != null) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: paidSource.color.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(paidSource.icon,
+                                size: 10, color: paidSource.color),
+                            const SizedBox(width: 3),
+                            Text(
+                              paidSource.name,
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: paidSource.color,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

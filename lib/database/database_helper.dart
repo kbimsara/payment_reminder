@@ -8,7 +8,7 @@ import '../models/income_transaction.dart';
 
 class DatabaseHelper {
   static const _databaseName = 'payment_reminder.db';
-  static const _databaseVersion = 3;
+  static const _databaseVersion = 4;
 
   static const tablePayments = 'payments';
   static const tableLoans = 'loans';
@@ -99,6 +99,7 @@ class DatabaseHelper {
         month INTEGER NOT NULL,
         isPaid INTEGER NOT NULL DEFAULT 0,
         paidDate TEXT,
+        incomeSourceId INTEGER,
         FOREIGN KEY (loanId) REFERENCES $tableLoans (id) ON DELETE CASCADE,
         UNIQUE(loanId, year, month)
       )
@@ -156,6 +157,7 @@ class DatabaseHelper {
           month INTEGER NOT NULL,
           isPaid INTEGER NOT NULL DEFAULT 0,
           paidDate TEXT,
+          incomeSourceId INTEGER,
           FOREIGN KEY (loanId) REFERENCES $tableLoans (id) ON DELETE CASCADE,
           UNIQUE(loanId, year, month)
         )
@@ -208,6 +210,13 @@ class DatabaseHelper {
           FOREIGN KEY (sourceId) REFERENCES $tableIncomeSources (id) ON DELETE CASCADE
         )
       ''');
+    }
+    if (oldVersion < 4) {
+      // Add incomeSourceId to loan_payment_months
+      try {
+        await db.execute(
+            'ALTER TABLE $tableLoanPaymentMonths ADD COLUMN incomeSourceId INTEGER');
+      } catch (_) {}
     }
   }
 
@@ -382,6 +391,7 @@ class DatabaseHelper {
     required int year,
     required int month,
     required bool isPaid,
+    int? incomeSourceId,
   }) async {
     final db = await database;
     await db.insert(
@@ -392,6 +402,7 @@ class DatabaseHelper {
         'month': month,
         'isPaid': isPaid ? 1 : 0,
         'paidDate': isPaid ? DateTime.now().toIso8601String() : null,
+        'incomeSourceId': isPaid ? incomeSourceId : null,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -437,8 +448,10 @@ class DatabaseHelper {
 
   Future<int> deleteIncomeSource(int id) async {
     final db = await database;
-    // Nullify incomeSourceId in payment_status first
+    // Nullify incomeSourceId in payment_status and loan_payment_months
     await db.update(tablePaymentStatus, {'incomeSourceId': null},
+        where: 'incomeSourceId = ?', whereArgs: [id]);
+    await db.update(tableLoanPaymentMonths, {'incomeSourceId': null},
         where: 'incomeSourceId = ?', whereArgs: [id]);
     return await db
         .delete(tableIncomeSources, where: 'id = ?', whereArgs: [id]);
@@ -517,6 +530,38 @@ class DatabaseHelper {
       'FROM $tablePaymentStatus ps '
       'JOIN $tablePayments p ON ps.paymentId = p.id '
       'WHERE ps.year = ? AND ps.month = ? AND ps.isPaid = 1',
+      [year, month],
+    );
+    return (rows.first['total'] as num?)?.toDouble() ?? 0.0;
+  }
+
+  /// Returns a map of sourceId → total loan payments from that source for the given month
+  Future<Map<int, double>> getLoanSpentBySourceForMonth(
+      int year, int month) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT lpm.incomeSourceId, SUM(l.monthlyAmount) as total '
+      'FROM $tableLoanPaymentMonths lpm '
+      'JOIN $tableLoans l ON lpm.loanId = l.id '
+      'WHERE lpm.year = ? AND lpm.month = ? AND lpm.isPaid = 1 '
+      'AND lpm.incomeSourceId IS NOT NULL '
+      'GROUP BY lpm.incomeSourceId',
+      [year, month],
+    );
+    return {
+      for (final r in rows)
+        r['incomeSourceId'] as int: (r['total'] as num).toDouble()
+    };
+  }
+
+  /// Returns total loan payments (all sources) for the given month
+  Future<double> getTotalLoansPaidForMonth(int year, int month) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+      'SELECT SUM(l.monthlyAmount) as total '
+      'FROM $tableLoanPaymentMonths lpm '
+      'JOIN $tableLoans l ON lpm.loanId = l.id '
+      'WHERE lpm.year = ? AND lpm.month = ? AND lpm.isPaid = 1',
       [year, month],
     );
     return (rows.first['total'] as num?)?.toDouble() ?? 0.0;

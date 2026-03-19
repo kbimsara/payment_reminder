@@ -5,6 +5,7 @@ class LoanPaymentMonth {
   final int month;
   final bool isPaid;
   final DateTime? paidDate;
+  final int? incomeSourceId;
 
   const LoanPaymentMonth({
     this.id,
@@ -13,6 +14,7 @@ class LoanPaymentMonth {
     required this.month,
     required this.isPaid,
     this.paidDate,
+    this.incomeSourceId,
   });
 
   Map<String, dynamic> toMap() => {
@@ -22,6 +24,7 @@ class LoanPaymentMonth {
         'month': month,
         'isPaid': isPaid ? 1 : 0,
         'paidDate': paidDate?.toIso8601String(),
+        'incomeSourceId': incomeSourceId,
       };
 
   factory LoanPaymentMonth.fromMap(Map<String, dynamic> map) =>
@@ -34,5 +37,6 @@ class LoanPaymentMonth {
         paidDate: map['paidDate'] != null
             ? DateTime.parse(map['paidDate'] as String)
             : null,
+        incomeSourceId: map['incomeSourceId'] as int?,
       );
 }

@@ -19,8 +19,9 @@ class _IncomeScreenState extends State<IncomeScreen> {
   List<IncomeSource> _sources = [];
   List<IncomeTransaction> _transactions = [];
   Map<int, double> _incomeBySource = {};
-  Map<int, double> _spentBySource = {};
+  Map<int, double> _spentBySource = {};   // combined: bills + loans per source
   double _totalBillsPaid = 0;
+  double _totalLoansPaid = 0;
   bool _isLoading = true;
 
   final _currencyFmt =
@@ -43,18 +44,30 @@ class _IncomeScreenState extends State<IncomeScreen> {
           _currentMonth.year, _currentMonth.month);
       final incomeBySource = await _db.getIncomeBySourceForMonth(
           _currentMonth.year, _currentMonth.month);
-      final spentBySource = await _db.getBillsSpentBySourceForMonth(
+      final billsBySource = await _db.getBillsSpentBySourceForMonth(
+          _currentMonth.year, _currentMonth.month);
+      final loansBySource = await _db.getLoanSpentBySourceForMonth(
           _currentMonth.year, _currentMonth.month);
       final totalBills = await _db.getTotalBillsPaidForMonth(
           _currentMonth.year, _currentMonth.month);
+      final totalLoans = await _db.getTotalLoansPaidForMonth(
+          _currentMonth.year, _currentMonth.month);
+
+      // Merge bills + loans spent per source
+      final combinedSpent = <int, double>{...billsBySource};
+      for (final entry in loansBySource.entries) {
+        combinedSpent[entry.key] =
+            (combinedSpent[entry.key] ?? 0) + entry.value;
+      }
 
       if (mounted) {
         setState(() {
           _sources = sources;
           _transactions = transactions;
           _incomeBySource = incomeBySource;
-          _spentBySource = spentBySource;
+          _spentBySource = combinedSpent;
           _totalBillsPaid = totalBills;
+          _totalLoansPaid = totalLoans;
           _isLoading = false;
         });
       }
@@ -66,7 +79,9 @@ class _IncomeScreenState extends State<IncomeScreen> {
   double get _totalIncome =>
       _incomeBySource.values.fold(0, (a, b) => a + b);
 
-  double get _balance => _totalIncome - _totalBillsPaid;
+  double get _totalSpent => _totalBillsPaid + _totalLoansPaid;
+
+  double get _balance => _totalIncome - _totalSpent;
 
   void _prevMonth() {
     setState(() => _currentMonth =
@@ -278,8 +293,8 @@ class _IncomeScreenState extends State<IncomeScreen> {
                 theme: theme,
               ),
               _SummaryItem(
-                label: 'Bills Paid',
-                value: '- ${_currencyFmt.format(_totalBillsPaid)}',
+                label: 'Total Spent',
+                value: '- ${_currencyFmt.format(_totalSpent)}',
                 color: theme.colorScheme.error,
                 theme: theme,
                 align: CrossAxisAlignment.end,
@@ -309,11 +324,11 @@ class _IncomeScreenState extends State<IncomeScreen> {
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: LinearProgressIndicator(
-                value: (_totalBillsPaid / _totalIncome).clamp(0.0, 1.0),
+                value: (_totalSpent / _totalIncome).clamp(0.0, 1.0),
                 backgroundColor:
                     theme.colorScheme.onSurface.withOpacity(0.1),
                 valueColor: AlwaysStoppedAnimation<Color>(
-                  _totalBillsPaid > _totalIncome
+                  _totalSpent > _totalIncome
                       ? theme.colorScheme.error
                       : Colors.green,
                 ),
@@ -324,7 +339,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
             Align(
               alignment: Alignment.centerRight,
               child: Text(
-                '${((_totalBillsPaid / _totalIncome) * 100).clamp(0, 100).toStringAsFixed(0)}% of income spent on bills',
+                '${((_totalSpent / _totalIncome) * 100).clamp(0, 100).toStringAsFixed(0)}% of income spent',
                 style: theme.textTheme.bodySmall,
               ),
             ),
@@ -396,7 +411,7 @@ class _IncomeScreenState extends State<IncomeScreen> {
                     color: Colors.green),
                 const SizedBox(width: 8),
                 _MiniChip(
-                    label: 'Bills',
+                    label: 'Spent',
                     value: '- ${_currencyFmt.format(spent)}',
                     color: theme.colorScheme.error),
                 const SizedBox(width: 8),
