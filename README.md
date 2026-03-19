@@ -1,2 +1,3 @@
-# payment-reminder
-flutter base payment reminder app
+# payment_reminder
+
+A new Flutter project.
